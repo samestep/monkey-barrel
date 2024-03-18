@@ -1,1 +1,5 @@
-# monkey-barrel
+# Monkey Barrel
+
+```sh
+cargo run --release
+```
