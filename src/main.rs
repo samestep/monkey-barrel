@@ -90,13 +90,11 @@ fn val_and_grad(coords: &[f64], grad: &mut [f64]) -> f64 {
         .into_iter()
         .map(|Vec2 { x, y }| (x, y))
         .collect();
-    // unclear why `barr` doesn't need to be reversed here
     for i in 0..n {
         let monk: Vec<Point> = monkey::POLYGON
             .iter()
             .map(|Vec2 { x, y }| (-x, -y))
             .collect();
-        // unclear why `monk` doesn't need to be reversed here
         let sum: Polygon = extract_loops(&reduced_convolution(&barr, &monk))
             .swap_remove(0)
             .into_iter()

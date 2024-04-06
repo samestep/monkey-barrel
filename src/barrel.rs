@@ -1,6 +1,6 @@
 use crate::util::{vec2, Vec2};
 
-// counterclockwise
+// clockwise (but in SVG it's flipped; don't be fooled!)
 pub const POLYGON: [Vec2; 43] = [
     vec2(777.098999, 2502.9672852),
     vec2(1090.4094238, 2485.817627),
