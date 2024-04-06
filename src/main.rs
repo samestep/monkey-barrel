@@ -26,7 +26,7 @@ const MONKEY_BEZIER: &str = include_str!("MonkeyCubicBézier.txt");
 
 const WIDTH: f64 = 1554.197998;
 const HEIGHT: f64 = 2507.9672852;
-const GAP: f64 = 3.;
+const GAP: f64 = 10.;
 
 const EPS: f64 = 1e-3;
 
@@ -115,22 +115,42 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
         }
     }
 
-    // for i in 0..n {
-    //     for j in (i + 1)..n {
-    //         let (z, dp) = sd_polygon(
-    //             &sums.pairs[indices[i]][indices[j]],
-    //             (vec2(x[j], y[j]) - vec2(x[i], y[i])) / SCALE,
-    //         );
-    //         let w = GAP - SCALE * z;
-    //         if w > 0. {
-    //             fx += w * w;
-    //             dx[i] += 2. * w * dp.x;
-    //             dy[i] += 2. * w * dp.y;
-    //             dx[j] -= 2. * w * dp.x;
-    //             dy[j] -= 2. * w * dp.y;
-    //         }
-    //     }
-    // }
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let a: Vec<Point> = monkey::POLYGON
+                .iter()
+                .map(|Vec2 { x, y }| {
+                    (
+                        xs[i] + x + rng.gen_range(-EPS..EPS),
+                        ys[i] + y + rng.gen_range(-EPS..EPS),
+                    )
+                })
+                .collect();
+            let b: Vec<Point> = monkey::POLYGON
+                .iter()
+                .map(|Vec2 { x, y }| {
+                    (
+                        -(xs[j] + x + rng.gen_range(-EPS..EPS)),
+                        -(ys[j] + y + rng.gen_range(-EPS..EPS)),
+                    )
+                })
+                .collect();
+            let c: Polygon = extract_loops(&reduced_convolution(&a, &b))
+                .swap_remove(0)
+                .into_iter()
+                .map(|((x, y), _)| Vec2 { x, y })
+                .collect();
+            let (z, dp) = sd_polygon(&c, vec2(0., 0.));
+            let w = GAP - z;
+            if w > 0. {
+                fx += w * w;
+                dxs[i] += 2. * w * dp.x;
+                dys[i] += 2. * w * dp.y;
+                dxs[j] -= 2. * w * dp.x;
+                dys[j] -= 2. * w * dp.y;
+            }
+        }
+    }
 
     fx
 }
@@ -254,5 +274,5 @@ fn run(dir: &Path, n: usize, seed: u64) -> f64 {
 
 fn main() {
     let dir = Path::new("out");
-    run(dir, 10, 0);
+    run(dir, 10, 2);
 }
