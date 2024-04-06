@@ -28,6 +28,8 @@ const WIDTH: f64 = 1554.197998;
 const HEIGHT: f64 = 2507.9672852;
 const GAP: f64 = 3.;
 
+const EPS: f64 = 1e-3;
+
 type Polygon = Vec<Vec2>;
 
 // https://iquilezles.org/articles/distfunctions2d/
@@ -72,40 +74,44 @@ struct Monkeys {
     coords: Vec<f64>,
 }
 
-fn init(n: usize, seed: u64) -> Monkeys {
-    let mut rng = Pcg64Mcg::seed_from_u64(seed);
+fn init(rng: &mut impl Rng, n: usize) -> Monkeys {
     let mut coords: Vec<_> = (0..n).map(|_| rng.gen_range(0.0..WIDTH)).collect();
     coords.extend((0..n).map(|_| rng.gen_range(0.0..HEIGHT)));
     Monkeys { coords }
 }
 
-fn val_and_grad(coords: &[f64], grad: &mut [f64]) -> f64 {
+fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
     grad.fill(0.);
     let n = coords.len() / 2;
-    let (x, y) = coords.split_at(n);
-    let (dx, dy) = grad.split_at_mut(n);
+    let (xs, ys) = coords.split_at(n);
+    let (dxs, dys) = grad.split_at_mut(n);
     let mut fx = 0.;
 
     let barr: Vec<Point> = barrel::POLYGON
         .into_iter()
-        .map(|Vec2 { x, y }| (x, y))
+        .map(|Vec2 { x, y }| (x + rng.gen_range(-EPS..EPS), y + rng.gen_range(-EPS..EPS)))
         .collect();
     for i in 0..n {
         let monk: Vec<Point> = monkey::POLYGON
             .iter()
-            .map(|Vec2 { x, y }| (-x, -y))
+            .map(|Vec2 { x, y }| {
+                (
+                    -(xs[i] + x + rng.gen_range(-EPS..EPS)),
+                    -(ys[i] + y + rng.gen_range(-EPS..EPS)),
+                )
+            })
             .collect();
         let sum: Polygon = extract_loops(&reduced_convolution(&barr, &monk))
             .swap_remove(0)
             .into_iter()
             .map(|((x, y), _)| Vec2 { x, y })
             .collect();
-        let (z, dp) = sd_polygon(&sum, vec2(x[i], y[i]));
+        let (z, dp) = sd_polygon(&sum, vec2(0., 0.));
         let w = z + GAP;
         if w > 0. {
             fx += w * w;
-            dx[i] += 2. * w * dp.x;
-            dy[i] += 2. * w * dp.y;
+            dxs[i] += 2. * w * dp.x;
+            dys[i] += 2. * w * dp.y;
         }
     }
 
@@ -130,6 +136,7 @@ fn val_and_grad(coords: &[f64], grad: &mut [f64]) -> f64 {
 }
 
 fn optimize(
+    rng: &mut impl Rng,
     mut monkeys: Monkeys,
     mut callback: impl FnMut(Option<&lbfgs::Info>, &[f64]),
 ) -> (Monkeys, f64) {
@@ -142,18 +149,28 @@ fn optimize(
         max_steps: 10,
         epsd: 1e-11,
     };
-    let mut state = lbfgs::first_step(cfg, val_and_grad, &mut monkeys.coords);
+    let mut state = lbfgs::first_step(
+        cfg,
+        |coords, grad| val_and_grad(rng, coords, grad),
+        &mut monkeys.coords,
+    );
     callback(None, &monkeys.coords);
     let mut fx = f64::NAN;
-    lbfgs::step_until(cfg, val_and_grad, &mut monkeys.coords, &mut state, |info| {
-        callback(Some(&info), info.x);
-        if info.fx == fx {
-            Some(())
-        } else {
-            fx = info.fx;
-            None
-        }
-    });
+    lbfgs::step_until(
+        cfg,
+        |coords, grad| val_and_grad(rng, coords, grad),
+        &mut monkeys.coords,
+        &mut state,
+        |info| {
+            callback(Some(&info), info.x);
+            if info.fx == fx {
+                Some(())
+            } else {
+                fx = info.fx;
+                None
+            }
+        },
+    );
     (monkeys, fx)
 }
 
@@ -199,7 +216,9 @@ fn run(dir: &Path, n: usize, seed: u64) -> f64 {
     let dir_frames = dir.join(format!("{n}-{seed}"));
     create_dir_all(&dir_frames).unwrap();
     let mut i: usize = 0;
-    let (Monkeys { coords }, fx) = optimize(init(n, seed), |info, coords| {
+    let mut rng = Pcg64Mcg::seed_from_u64(seed);
+    let monkeys = init(&mut rng, n);
+    let (Monkeys { coords }, fx) = optimize(&mut rng, monkeys, |info, coords| {
         if i.count_ones() < 2 {
             print!("i = {i}");
             if let Some(info) = info {
