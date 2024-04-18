@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vec2 {
@@ -8,6 +8,14 @@ pub struct Vec2 {
 
 pub const fn vec2(x: f64, y: f64) -> Vec2 {
     Vec2 { x, y }
+}
+
+impl Neg for Vec2 {
+    type Output = Vec2;
+
+    fn neg(self) -> Vec2 {
+        vec2(-self.x, -self.y)
+    }
 }
 
 impl Add for Vec2 {
@@ -52,4 +60,14 @@ impl Div<f64> for Vec2 {
 
 pub fn dot(u: Vec2, v: Vec2) -> f64 {
     u.x * v.x + u.y * v.y
+}
+
+impl Vec2 {
+    pub fn norm(self) -> f64 {
+        dot(self, self).sqrt()
+    }
+}
+
+pub fn cross(u: Vec2, v: Vec2) -> f64 {
+    u.x * v.y - u.y * v.x
 }

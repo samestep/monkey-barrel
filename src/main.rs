@@ -19,7 +19,7 @@ use std::{
     io::Write as _,
     path::Path,
 };
-use util::{dot, vec2, Vec2};
+use util::{cross, dot, vec2, Vec2};
 
 const BARREL_BEZIER: &str = include_str!("BarrelCubicBézier.txt");
 const MONKEY_BEZIER: &str = include_str!("MonkeyCubicBézier.txt");
@@ -32,42 +32,79 @@ const EPS: f64 = 1e-3;
 
 type Polygon = Vec<Vec2>;
 
-// https://iquilezles.org/articles/distfunctions2d/
-fn sd_polygon(v: &[Vec2], p: Vec2) -> (f64, Vec2) {
-    let n = v.len();
-    let u = p - v[0];
-    let mut d = dot(u, u);
-    let mut dp = 2. * u;
-    let mut s = 1.0;
-    let mut i = 0;
-    let mut j = n - 1;
-    while i < n {
-        let e = v[j] - v[i];
-        let w = p - v[i];
-        let we = dot(w, e);
-        let ee = dot(e, e);
-        let r = we / ee;
-        let rc = r.clamp(0.0, 1.0);
-        let b = w - e * rc;
-        let bb = dot(b, b);
-        if bb < d {
-            d = bb;
-            let db = 2. * b;
-            let drc = -dot(e, db);
-            let dr = if (0.0..=1.0).contains(&r) { drc } else { 0. };
-            let dwe = dr / ee;
-            let dw = db + dwe * e;
-            dp = dw;
-        }
-        let c = [p.y >= v[i].y, p.y < v[j].y, e.x * w.y > e.y * w.x];
-        if c.iter().all(|&a| a) || c.iter().all(|&a| !a) {
-            s *= -1.0;
-        }
-        j = i;
-        i += 1;
+fn signed_area(p: &[Vec2]) -> f64 {
+    let n = p.len();
+    let mut sum = 0.;
+    let mut u = p[n - 1];
+    for &v in p {
+        sum += cross(u, v);
+        u = v;
     }
-    let z = s * d.sqrt();
-    (z, dp / (2. * z))
+    sum / 2.
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum Orientation {
+    Clockwise,
+    Counterclockwise,
+}
+
+fn orientation(p: &[Vec2]) -> Orientation {
+    if signed_area(p) < 0. {
+        Orientation::Clockwise
+    } else {
+        Orientation::Counterclockwise
+    }
+}
+
+fn sd_polygon(q: &[Vec2], p: Vec2) -> (f64, Vec2) {
+    let n = q.len();
+    let mut dd = f64::INFINITY;
+    let mut e = true;
+    let mut i = n - 1;
+    let mut k = (i, 0);
+    let mut s = false;
+    let mut v0 = q[i] - q[i - 1];
+    for j in 0..n {
+        let u = p - q[i];
+        let v = q[j] - q[i];
+        let vv = dot(v, v);
+        let t = dot(u, v);
+        if 0. <= t && t < vv {
+            let w = cross(u, v);
+            let dd1 = w * w / vv;
+            if dd1 < dd {
+                dd = dd1;
+                e = true;
+                k = (i, j);
+            }
+        } else {
+            let dd1 = dot(u, u);
+            if dd1 < dd {
+                dd = dd1;
+                e = false;
+                k = (i, j);
+                s = cross(v0, v) < 0.;
+            }
+        }
+        i = j;
+        v0 = v;
+    }
+    let (i, j) = k;
+    let u = p - q[i];
+    if e {
+        let v = q[j] - q[i];
+        let z = v.norm();
+        (cross(u, v) / z, vec2(v.y, -v.x) / z)
+    } else {
+        let d = dd.sqrt();
+        let g = u / d;
+        if s {
+            (-d, -g)
+        } else {
+            (d, g)
+        }
+    }
 }
 
 struct Monkeys {
@@ -101,11 +138,13 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
                 )
             })
             .collect();
-        let sum: Polygon = extract_loops(&reduced_convolution(&barr, &monk))
+        let mut sum: Polygon = extract_loops(&reduced_convolution(&barr, &monk))
             .swap_remove(0)
             .into_iter()
             .map(|((x, y), _)| Vec2 { x, y })
             .collect();
+        assert_eq!(orientation(&sum), Orientation::Clockwise);
+        sum.reverse();
         let (z, dp) = sd_polygon(&sum, vec2(0., 0.));
         let w = z + GAP;
         if w > 0. {
@@ -135,11 +174,15 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
                     )
                 })
                 .collect();
-            let c: Polygon = extract_loops(&reduced_convolution(&a, &b))
+            let mut c: Polygon = extract_loops(&reduced_convolution(&a, &b))
                 .swap_remove(0)
                 .into_iter()
                 .map(|((x, y), _)| Vec2 { x, y })
                 .collect();
+            if orientation(&c) != Orientation::Counterclockwise {
+                // adding the noise should make this never happen! why is this happening?
+                c.reverse();
+            }
             let (z, dp) = sd_polygon(&c, vec2(0., 0.));
             let w = GAP - z;
             if w > 0. {
@@ -273,6 +316,8 @@ fn run(dir: &Path, n: usize, seed: u64) -> f64 {
 }
 
 fn main() {
+    assert_eq!(orientation(&barrel::POLYGON), Orientation::Clockwise);
+    assert_eq!(orientation(&monkey::POLYGON), Orientation::Counterclockwise);
     let dir = Path::new("out");
     run(dir, 10, 2);
 }
