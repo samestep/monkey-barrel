@@ -14,6 +14,7 @@ use resvg::{
     },
 };
 use std::{
+    f64::consts::TAU,
     fmt,
     fs::{create_dir_all, File},
     io::Write as _,
@@ -29,6 +30,13 @@ const HEIGHT: f64 = 2507.9672852;
 const GAP: f64 = 10.;
 
 const EPS: f64 = 1e-3;
+
+fn rotate_about(v: Vec2, a: f64, c: Vec2) -> Vec2 {
+    let sin = a.sin();
+    let cos = a.cos();
+    let v = v - c;
+    vec2(cos * v.x - sin * v.y, sin * v.x + cos * v.y) + c
+}
 
 type Polygon = Vec<Vec2>;
 
@@ -57,7 +65,20 @@ fn orientation(p: &[Vec2]) -> Orientation {
     }
 }
 
-fn sd_polygon(q: &[Vec2], p: Vec2) -> (f64, Vec2) {
+fn center(p: &[Vec2]) -> Vec2 {
+    let mut sum = vec2(0., 0.);
+    for &v in p {
+        sum = sum + v;
+    }
+    sum / p.len() as f64
+}
+
+struct SdGrad {
+    i: usize,
+    g: Vec2,
+}
+
+fn sd_polygon(q: &[Vec2], p: Vec2) -> (f64, SdGrad, SdGrad) {
     let n = q.len();
     let mut dd = f64::INFINITY;
     let mut e = true;
@@ -95,14 +116,21 @@ fn sd_polygon(q: &[Vec2], p: Vec2) -> (f64, Vec2) {
     if e {
         let v = q[j] - q[i];
         let z = v.norm();
-        (cross(u, v) / z, vec2(v.y, -v.x) / z)
+        let d = cross(u, v) / z;
+        let gu = vec2(v.y, -v.x) / z;
+        let gv = (vec2(-u.y, u.x) - (d / z) * v) / z;
+        (d, SdGrad { i, g: -gu - gv }, SdGrad { i: j, g: gv })
     } else {
         let d = dd.sqrt();
-        let g = u / d;
+        let gi = u / d;
+        let gj = SdGrad {
+            i: j,
+            g: vec2(0., 0.),
+        };
         if s {
-            (-d, -g)
+            (-d, SdGrad { i, g: gi }, gj)
         } else {
-            (d, g)
+            (d, SdGrad { i, g: -gi }, gj)
         }
     }
 }
@@ -114,15 +142,20 @@ struct Monkeys {
 fn init(rng: &mut impl Rng, n: usize) -> Monkeys {
     let mut coords: Vec<_> = (0..n).map(|_| rng.gen_range(0.0..WIDTH)).collect();
     coords.extend((0..n).map(|_| rng.gen_range(0.0..HEIGHT)));
+    coords.extend((0..n).map(|_| rng.gen_range(0.0..TAU)));
     Monkeys { coords }
 }
 
 fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
     grad.fill(0.);
-    let n = coords.len() / 2;
-    let (xs, ys) = coords.split_at(n);
-    let (dxs, dys) = grad.split_at_mut(n);
+    let n = coords.len() / 3;
+    let (xs, others) = coords.split_at(n);
+    let (ys, thetas) = others.split_at(n);
+    let (dxs, dothers) = grad.split_at_mut(n);
+    let (dys, dthetas) = dothers.split_at_mut(n);
     let mut fx = 0.;
+
+    let monkey_center = center(&monkey::POLYGON);
 
     let barr: Vec<Point> = barrel::POLYGON
         .into_iter()
@@ -131,7 +164,8 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
     for i in 0..n {
         let monk: Vec<Point> = monkey::POLYGON
             .iter()
-            .map(|Vec2 { x, y }| {
+            .map(|&v| {
+                let Vec2 { x, y } = rotate_about(v, thetas[i], monkey_center);
                 (
                     -(xs[i] + x + rng.gen_range(-EPS..EPS)),
                     -(ys[i] + y + rng.gen_range(-EPS..EPS)),
@@ -143,14 +177,14 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
             .map(|p| p.into_iter().map(|((x, y), _)| Vec2 { x, y }).collect())
             .filter(|p: &Polygon| orientation(p) == Orientation::Clockwise)
             .collect();
-        assert_eq!(loops.len(), 1);
-        let sum: Polygon = loops.swap_remove(0);
-        let (z, dp) = sd_polygon(&sum, vec2(0., 0.));
+        loops.sort_by_key(|p| p.len()); // TODO: actually compute nesting instead of this hack
+        let sum: Polygon = loops.pop().unwrap();
+        let (z, da, db) = sd_polygon(&sum, vec2(0., 0.));
         let w = GAP - z;
         if w > 0. {
             fx += w * w;
-            dxs[i] -= 2. * w * dp.x;
-            dys[i] -= 2. * w * dp.y;
+            dxs[i] += 2. * w * (da.g.x + db.g.x);
+            dys[i] += 2. * w * (da.g.y + db.g.y);
         }
     }
 
@@ -158,7 +192,8 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
         for j in (i + 1)..n {
             let a: Vec<Point> = monkey::POLYGON
                 .iter()
-                .map(|Vec2 { x, y }| {
+                .map(|&v| {
+                    let Vec2 { x, y } = rotate_about(v, thetas[i], monkey_center);
                     (
                         xs[i] + x + rng.gen_range(-EPS..EPS),
                         ys[i] + y + rng.gen_range(-EPS..EPS),
@@ -167,7 +202,8 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
                 .collect();
             let b: Vec<Point> = monkey::POLYGON
                 .iter()
-                .map(|Vec2 { x, y }| {
+                .map(|&v| {
+                    let Vec2 { x, y } = rotate_about(v, thetas[j], monkey_center);
                     (
                         -(xs[j] + x + rng.gen_range(-EPS..EPS)),
                         -(ys[j] + y + rng.gen_range(-EPS..EPS)),
@@ -179,16 +215,16 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
                 .map(|p| p.into_iter().map(|((x, y), _)| Vec2 { x, y }).collect())
                 .filter(|p: &Polygon| orientation(p) == Orientation::Counterclockwise)
                 .collect();
-            assert_eq!(loops.len(), 1);
-            let c = loops.swap_remove(0);
-            let (z, dp) = sd_polygon(&c, vec2(0., 0.));
+            loops.sort_by_key(|p| p.len()); // TODO: actually compute nesting instead of this hack
+            let c = loops.pop().unwrap();
+            let (z, da, db) = sd_polygon(&c, vec2(0., 0.));
             let w = GAP - z;
             if w > 0. {
                 fx += w * w;
-                dxs[i] += 2. * w * dp.x;
-                dys[i] += 2. * w * dp.y;
-                dxs[j] -= 2. * w * dp.x;
-                dys[j] -= 2. * w * dp.y;
+                dxs[i] -= 2. * w * (da.g.x + db.g.x);
+                dys[i] -= 2. * w * (da.g.y + db.g.y);
+                dxs[j] += 2. * w * (da.g.x + db.g.x);
+                dys[j] += 2. * w * (da.g.y + db.g.y);
             }
         }
     }
@@ -236,7 +272,7 @@ fn optimize(
 }
 
 fn arrangement(w: &mut impl fmt::Write, coords: &[f64]) -> fmt::Result {
-    let n = coords.len() / 2;
+    let n = coords.len() / 3;
     writeln!(
         w,
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {WIDTH} {HEIGHT}">"#,
@@ -253,12 +289,16 @@ fn arrangement(w: &mut impl fmt::Write, coords: &[f64]) -> fmt::Result {
         r##"  <path fill="#FFF200" stroke="#FFAA00" stroke-width="10" d="{}" />"##,
         BARREL_BEZIER,
     )?;
+    let monkey_center = center(&monkey::POLYGON);
     for i in 0..n {
         writeln!(
             w,
-            r##"  <use x="{}" y="{}" href="#monkey" />"##,
+            r##"  <use href="#monkey" transform="translate({} {}) rotate({} {} {})" />"##,
             coords[i],
             coords[n + i],
+            coords[2 * n + i].to_degrees(),
+            monkey_center.x,
+            monkey_center.y,
         )?;
     }
     writeln!(w, "</svg>")?;
@@ -317,5 +357,5 @@ fn main() {
     assert_eq!(orientation(&barrel::POLYGON), Orientation::Clockwise);
     assert_eq!(orientation(&monkey::POLYGON), Orientation::Counterclockwise);
     let dir = Path::new("out");
-    run(dir, 10, 2);
+    run(dir, 10, 0);
 }
