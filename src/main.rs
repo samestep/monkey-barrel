@@ -138,19 +138,19 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
                 )
             })
             .collect();
-        let mut sum: Polygon = extract_loops(&reduced_convolution(&barr, &monk))
-            .swap_remove(0)
+        let mut loops: Vec<_> = extract_loops(&reduced_convolution(&barr, &monk))
             .into_iter()
-            .map(|((x, y), _)| Vec2 { x, y })
+            .map(|p| p.into_iter().map(|((x, y), _)| Vec2 { x, y }).collect())
+            .filter(|p: &Polygon| orientation(p) == Orientation::Clockwise)
             .collect();
-        assert_eq!(orientation(&sum), Orientation::Clockwise);
-        sum.reverse();
+        assert_eq!(loops.len(), 1);
+        let sum: Polygon = loops.swap_remove(0);
         let (z, dp) = sd_polygon(&sum, vec2(0., 0.));
-        let w = z + GAP;
+        let w = GAP - z;
         if w > 0. {
             fx += w * w;
-            dxs[i] += 2. * w * dp.x;
-            dys[i] += 2. * w * dp.y;
+            dxs[i] -= 2. * w * dp.x;
+            dys[i] -= 2. * w * dp.y;
         }
     }
 
