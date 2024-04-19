@@ -5,7 +5,7 @@ publish = false
 edition = "2021"
 
 [dependencies]
-minkowski = "0.2"
+minkowski = "0.2.1"
 rand = "0.8"
 rand_pcg = "0.3"
 resvg = "0.38"
