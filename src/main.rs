@@ -174,15 +174,13 @@ fn val_and_grad(rng: &mut impl Rng, coords: &[f64], grad: &mut [f64]) -> f64 {
                     )
                 })
                 .collect();
-            let mut c: Polygon = extract_loops(&reduced_convolution(&a, &b))
-                .swap_remove(0)
+            let mut loops: Vec<_> = extract_loops(&reduced_convolution(&a, &b))
                 .into_iter()
-                .map(|((x, y), _)| Vec2 { x, y })
+                .map(|p| p.into_iter().map(|((x, y), _)| Vec2 { x, y }).collect())
+                .filter(|p: &Polygon| orientation(p) == Orientation::Counterclockwise)
                 .collect();
-            if orientation(&c) != Orientation::Counterclockwise {
-                // adding the noise should make this never happen! why is this happening?
-                c.reverse();
-            }
+            assert_eq!(loops.len(), 1);
+            let c = loops.swap_remove(0);
             let (z, dp) = sd_polygon(&c, vec2(0., 0.));
             let w = GAP - z;
             if w > 0. {
