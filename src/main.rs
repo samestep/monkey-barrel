@@ -61,7 +61,7 @@ fn orientation(p: &[Vec2]) -> Orientation {
 fn center(p: &[Vec2]) -> Vec2 {
     let mut sum = vec2(0., 0.);
     for &v in p {
-        sum = sum + v;
+        sum += v;
     }
     sum / p.len() as f64
 }
