@@ -29,7 +29,7 @@ const WIDTH: f64 = 1554.197998;
 const HEIGHT: f64 = 2507.9672852;
 const GAP: f64 = 10.;
 
-const EPS: f64 = 1e-3;
+const EPS: f64 = 1e-6;
 
 type Polygon = Vec<Vec2>;
 
