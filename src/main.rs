@@ -130,9 +130,7 @@ fn init(seed: u64, n: usize) -> Monkeys {
     let mut coords: Vec<_> = (0..n).map(|_| rng.gen_range(0.0..WIDTH)).collect();
     coords.extend((0..n).map(|_| rng.gen_range(0.0..HEIGHT)));
     Monkeys {
-        thetas: (0..n)
-            .map(|_| rng.gen_range(((PI - 1.) / 2.)..((PI + 1.) / 2.)))
-            .collect(),
+        thetas: (0..n).map(|i| PI / 2. - (i as f64) / 9.).collect(),
         coords,
     }
 }
@@ -370,7 +368,7 @@ fn main() {
     assert_eq!(orientation(&monkey::POLYGON), Orientation::Counterclockwise);
     let dir = Path::new("out");
     let n = 6;
-    let seed = 23;
+    let seed = 54;
     let monkeys = init(seed, n);
     let sums = get_sums(&monkeys);
     run(&dir.join(format!("{n}-{seed}")), &sums, monkeys);
