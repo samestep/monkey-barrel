@@ -14,7 +14,7 @@ use resvg::{
     },
 };
 use std::{
-    f64::consts::TAU,
+    f64::consts::PI,
     fmt,
     fs::{create_dir_all, File},
     io::Write as _,
@@ -130,7 +130,9 @@ fn init(seed: u64, n: usize) -> Monkeys {
     let mut coords: Vec<_> = (0..n).map(|_| rng.gen_range(0.0..WIDTH)).collect();
     coords.extend((0..n).map(|_| rng.gen_range(0.0..HEIGHT)));
     Monkeys {
-        thetas: (0..n).map(|_| rng.gen_range(0.0..TAU)).collect(),
+        thetas: (0..n)
+            .map(|_| rng.gen_range(((PI - 1.) / 2.)..((PI + 1.) / 2.)))
+            .collect(),
         coords,
     }
 }
@@ -164,13 +166,11 @@ fn val_and_grad(sums: &Sums, thetas: &[f64], coords: &[f64], grad: &mut [f64]) -
                 vec2(xs[j], ys[j]) - vec2(xs[i], ys[i]),
             );
             if j == i + 1 {
-                if z != 0. {
-                    fx += z * z;
-                    dxs[i] -= 2. * z * dp.x;
-                    dys[i] -= 2. * z * dp.y;
-                    dxs[j] += 2. * z * dp.x;
-                    dys[j] += 2. * z * dp.y;
-                }
+                fx += z * z;
+                dxs[i] -= 2. * z * dp.x;
+                dys[i] -= 2. * z * dp.y;
+                dxs[j] += 2. * z * dp.x;
+                dys[j] += 2. * z * dp.y;
             } else {
                 let w = GAP - z;
                 if w > 0. {
