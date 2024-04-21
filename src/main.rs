@@ -140,6 +140,7 @@ fn init(seed: u64, n: usize) -> Monkeys {
 struct Sums {
     contains: Vec<Polygon>,
     pairs: Vec<Vec<Option<Polygon>>>,
+    arms: Vec<Polygon>,
 }
 
 fn val_and_grad(sums: &Sums, thetas: &[f64], coords: &[f64], grad: &mut [f64]) -> f64 {
@@ -161,25 +162,23 @@ fn val_and_grad(sums: &Sums, thetas: &[f64], coords: &[f64], grad: &mut [f64]) -
 
     for i in 0..n {
         for j in (i + 1)..n {
-            let (z, dp) = sd_polygon(
-                sums.pairs[i][j].as_ref().unwrap(),
-                vec2(xs[j], ys[j]) - vec2(xs[i], ys[i]),
-            );
+            let v = vec2(xs[j], ys[j]) - vec2(xs[i], ys[i]);
+            let (z, dp) = sd_polygon(sums.pairs[i][j].as_ref().unwrap(), v);
+            let w = -z;
+            if w > 0. {
+                fx += w * w;
+                dxs[i] += 2. * w * dp.x;
+                dys[i] += 2. * w * dp.y;
+                dxs[j] -= 2. * w * dp.x;
+                dys[j] -= 2. * w * dp.y;
+            }
             if j == i + 1 {
+                let (z, dp) = sd_polygon(&sums.arms[i], v);
                 fx += z * z;
                 dxs[i] -= 2. * z * dp.x;
                 dys[i] -= 2. * z * dp.y;
                 dxs[j] += 2. * z * dp.x;
                 dys[j] += 2. * z * dp.y;
-            } else {
-                let w = GAP - z;
-                if w > 0. {
-                    fx += w * w;
-                    dxs[i] += 2. * w * dp.x;
-                    dys[i] += 2. * w * dp.y;
-                    dxs[j] -= 2. * w * dp.x;
-                    dys[j] -= 2. * w * dp.y;
-                }
             }
         }
     }
@@ -265,21 +264,30 @@ fn rasterize(svg: &str) -> Pixmap {
     pixmap
 }
 
+fn rotate(theta: f64, p: &[Vec2]) -> Polygon {
+    let sin = theta.sin();
+    let cos = theta.cos();
+    p.iter()
+        .map(|&v| {
+            let x = cos * v.x - sin * v.y;
+            let y = sin * v.x + cos * v.y;
+            vec2(x, y)
+        })
+        .collect()
+}
+
+fn negate(p: Polygon) -> Polygon {
+    p.into_iter().map(|v| -v).collect()
+}
+
 fn get_sums(monkeys: &Monkeys) -> Sums {
+    let n = monkeys.thetas.len();
+
     let contains: Vec<Polygon> = monkeys
         .thetas
         .iter()
-        .map(|theta| {
-            let sin = theta.sin();
-            let cos = theta.cos();
-            let monk: Polygon = monkey::POLYGON
-                .iter()
-                .map(|&v| {
-                    let x = cos * v.x - sin * v.y;
-                    let y = sin * v.x + cos * v.y;
-                    -vec2(x, y)
-                })
-                .collect();
+        .map(|&theta| {
+            let monk = negate(rotate(theta, &monkey::POLYGON));
             minkowski_sum(&barrel::POLYGON, &monk, Orientation::Clockwise)
         })
         .collect();
@@ -288,42 +296,36 @@ fn get_sums(monkeys: &Monkeys) -> Sums {
         .thetas
         .iter()
         .enumerate()
-        .map(|(i, theta1)| {
-            let sin1 = theta1.sin();
-            let cos1 = theta1.cos();
-            let a: Polygon = monkey::POLYGON
-                .iter()
-                .map(|&v| {
-                    let x = cos1 * v.x - sin1 * v.y;
-                    let y = sin1 * v.x + cos1 * v.y;
-                    vec2(x, y)
-                })
-                .collect();
+        .map(|(i, &theta1)| {
+            let a = rotate(theta1, &monkey::POLYGON);
             monkeys
                 .thetas
                 .iter()
                 .enumerate()
-                .map(|(j, theta2)| {
+                .map(|(j, &theta2)| {
                     if j <= i {
                         return None;
                     }
-                    let sin2 = theta2.sin();
-                    let cos2 = theta2.cos();
-                    let b: Polygon = monkey::POLYGON
-                        .iter()
-                        .map(|&v| {
-                            let x = cos2 * v.x - sin2 * v.y;
-                            let y = sin2 * v.x + cos2 * v.y;
-                            -vec2(x, y)
-                        })
-                        .collect();
+                    let b = negate(rotate(theta2, &monkey::POLYGON));
                     Some(minkowski_sum(&a, &b, Orientation::Counterclockwise))
                 })
                 .collect()
         })
         .collect();
 
-    Sums { contains, pairs }
+    let arms = (0..(n - 1))
+        .map(|i| {
+            let a = rotate(monkeys.thetas[i], &monkey::RIGHT_ARM);
+            let b = negate(rotate(monkeys.thetas[i + 1], &monkey::LEFT_ARM));
+            minkowski_sum(&a, &b, Orientation::Counterclockwise)
+        })
+        .collect();
+
+    Sums {
+        contains,
+        pairs,
+        arms,
+    }
 }
 
 fn run(dir: &Path, sums: &Sums, monkeys: Monkeys) -> f64 {
@@ -368,7 +370,7 @@ fn main() {
     assert_eq!(orientation(&monkey::POLYGON), Orientation::Counterclockwise);
     let dir = Path::new("out");
     let n = 6;
-    let seed = 0;
+    let seed = 23;
     let monkeys = init(seed, n);
     let sums = get_sums(&monkeys);
     run(&dir.join(format!("{n}-{seed}")), &sums, monkeys);
