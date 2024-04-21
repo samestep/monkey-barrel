@@ -137,7 +137,7 @@ fn init(seed: u64, n: usize) -> Monkeys {
 
 struct Sums {
     contains: Vec<Polygon>,
-    disjoints: Vec<Vec<Option<Polygon>>>,
+    pairs: Vec<Vec<Option<Polygon>>>,
 }
 
 fn val_and_grad(sums: &Sums, thetas: &[f64], coords: &[f64], grad: &mut [f64]) -> f64 {
@@ -160,16 +160,26 @@ fn val_and_grad(sums: &Sums, thetas: &[f64], coords: &[f64], grad: &mut [f64]) -
     for i in 0..n {
         for j in (i + 1)..n {
             let (z, dp) = sd_polygon(
-                sums.disjoints[i][j].as_ref().unwrap(),
+                sums.pairs[i][j].as_ref().unwrap(),
                 vec2(xs[j], ys[j]) - vec2(xs[i], ys[i]),
             );
-            let w = GAP - z;
-            if w > 0. {
-                fx += w * w;
-                dxs[i] += 2. * w * dp.x;
-                dys[i] += 2. * w * dp.y;
-                dxs[j] -= 2. * w * dp.x;
-                dys[j] -= 2. * w * dp.y;
+            if j == i + 1 {
+                if z != 0. {
+                    fx += z * z;
+                    dxs[i] -= 2. * z * dp.x;
+                    dys[i] -= 2. * z * dp.y;
+                    dxs[j] += 2. * z * dp.x;
+                    dys[j] += 2. * z * dp.y;
+                }
+            } else {
+                let w = GAP - z;
+                if w > 0. {
+                    fx += w * w;
+                    dxs[i] += 2. * w * dp.x;
+                    dys[i] += 2. * w * dp.y;
+                    dxs[j] -= 2. * w * dp.x;
+                    dys[j] -= 2. * w * dp.y;
+                }
             }
         }
     }
@@ -274,7 +284,7 @@ fn get_sums(monkeys: &Monkeys) -> Sums {
         })
         .collect();
 
-    let disjoints: Vec<Vec<Option<Polygon>>> = monkeys
+    let pairs: Vec<Vec<Option<Polygon>>> = monkeys
         .thetas
         .iter()
         .enumerate()
@@ -313,10 +323,7 @@ fn get_sums(monkeys: &Monkeys) -> Sums {
         })
         .collect();
 
-    Sums {
-        contains,
-        disjoints,
-    }
+    Sums { contains, pairs }
 }
 
 fn run(dir: &Path, sums: &Sums, monkeys: Monkeys) -> f64 {
@@ -357,11 +364,11 @@ fn run(dir: &Path, sums: &Sums, monkeys: Monkeys) -> f64 {
 }
 
 fn main() {
-    let n = 10;
-    let seed = 0;
     assert_eq!(orientation(&barrel::POLYGON), Orientation::Clockwise);
     assert_eq!(orientation(&monkey::POLYGON), Orientation::Counterclockwise);
     let dir = Path::new("out");
+    let n = 6;
+    let seed = 0;
     let monkeys = init(seed, n);
     let sums = get_sums(&monkeys);
     run(&dir.join(format!("{n}-{seed}")), &sums, monkeys);
